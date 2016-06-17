@@ -4,6 +4,7 @@ var GridStore =   require('mongodb').GridStore;
 var Grid =        require('gridfs-stream');
 var util =        require("../helpers/util.js");
 var jimp =        require("jimp");
+var customHelperCloud = require('../helpers/cloudObject.js');
 
 
 module.exports = function() {
@@ -153,8 +154,18 @@ function _saveFileObj(appId,document){
     var deferred = global.q.defer();
 
     try{
-        var collectionName = "_File";
-        global.mongoService.document._update(appId, collectionName, document).then(function(doc){
+        
+        _saveAndGetFolder(appId, null, document.path).then(function(folder){
+            var folderId=null;
+            if(folder && folder._id){
+                folderId=folder._id;
+            }
+
+            document.folderId=folderId;
+            var collectionName = "_File";
+            return  global.mongoService.document._update(appId, collectionName, document);
+
+        }).then(function(doc){
             console.log('Document updated.');
             deferred.resolve(doc);
         },function(err){
@@ -168,6 +179,94 @@ function _saveFileObj(appId,document){
     }
 
     return deferred.promise;
+}
+
+function _saveAndGetFolder(appId, folderObject, path){
+
+    var deferred = global.q.defer();
+    
+    try{
+        var folderPaths=[]; 
+        if(path && path!=""){
+            folderPaths=path.split("/");
+        }   
+
+        if(folderPaths.length>0 && folderPaths[0] && folderPaths[0]!=""){        
+
+            var currentFolderName=folderPaths[0];
+            var collectionName = "_File"; 
+
+            var newFolderObject=customHelperCloud.newCloudObject("folder");
+            newFolderObject._id=util.getId();
+
+            if(folderObject && folderObject._id){
+                newFolderObject.folderId=folderObject._id;
+            }
+
+            newFolderObject.name=currentFolderName;
+            newFolderObject.lowerCaseName=currentFolderName.toLowerCase();        
+            newFolderObject._tableName = collectionName;
+
+            //Check and Save folder
+            var isMasterKey=true;                       
+            var select = {};
+            var sort = {};
+            var skip = 0; 
+            var accessList=null;              
+
+            var query = {};
+            query.$include = [];
+            query.$includeList = [];
+            query["lowerCaseName"] = currentFolderName.toLowerCase();
+
+            if(folderObject && folderObject._id){
+                query["folderId"] =  folderObject._id;
+            }        
+
+            global.customService.findOne(appId, collectionName, query, select, sort, skip, accessList, isMasterKey)
+            .then(function(folderDoc){
+
+                var index=folderPaths.indexOf(currentFolderName);
+                folderPaths.splice(index,1);
+                var newPath=folderPaths.join("/");
+
+                if(folderDoc){                
+                    _saveAndGetFolder(appId,folderDoc,newPath).then(function(respObject){
+                        deferred.resolve(respObject);
+                    },function(error){
+                        deferred.reject(error);
+                    });           
+                }else{
+
+                    var collection =  global.mongoClient.db(appId).collection(collectionName);
+                    collection.insertOne(newFolderObject,function(err,doc){
+                        if(err) {
+                            deferred.reject(error);
+                        }else if(doc && doc.ops && doc.ops.length>0) {  
+                            _saveAndGetFolder(appId,doc.ops[0],newPath).then(function(respObject){
+                                deferred.resolve(respObject);
+                            },function(error){
+                                deferred.reject(error);
+                            });                   
+                        }
+                    });                
+                }
+                
+            },function(error){
+                deferred.reject(error);
+            });
+
+        }else{
+            deferred.resolve(folderObject);
+        }
+
+    } catch(err){           
+        global.winston.log('error',{"error":String(err),"stack": new Error().stack});
+        deferred.reject(err);
+    }
+
+    return deferred.promise;
+
 }
 
 /*Desc   : delete cloudBoostFileObject

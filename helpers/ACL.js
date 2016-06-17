@@ -48,6 +48,13 @@
         }catch(err){                    
             global.winston.log('error',{"error":String(err),"stack": new Error().stack});                                                  
         }
+    },
+    newACL : function() { //constructor for ACL class
+        var document = {};
+        document['read'] = {"allow":{"user":['all'],"role":[]},"deny":{"user":[],"role":[]}}; //by default allow read access to "all"
+        document['write'] = {"allow":{"user":['all'],"role":[]},"deny":{"user":[],"role":[]}}; //by default allow write access to "all"
+        document.parent = null;  
+        return document;     
     }
 };
 
