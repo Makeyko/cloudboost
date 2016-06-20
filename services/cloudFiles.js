@@ -69,16 +69,21 @@ module.exports = function() {
 			var deferred = q.defer();
             try{
                 var collectionName = "_File";
-    			var fileUrl = global.keys.fileUrl +appId+"/";
-    			var filename = fileObj.url.substr(fileUrl.length, fileObj.url.length+1);
-    			console.log(filename + "  " +fileObj.url);
+               
+                if(fileObj._type=="file"){
+                    var fileUrl = global.keys.fileUrl +appId+"/";
+                    var filename = fileObj.url.substr(fileUrl.length, fileObj.url.length+1);
+                    console.log(filename + "  " +fileObj.url);
+                }
 
+                if(fileObj._type=="folder"){                   
+                    console.log(filename + "  Folder");
+                }    			
+    			
                 var promises = [];
 
-                _checkWriteACL(appId,collectionName,fileObj._id,accessList,isMasterKey).then(function(){
-                    promises.push(global.mongoService.document.deleteFileFromGridFs(appId,fileObj._id));
-                    promises.push(_deleteFileObj(appId,fileObj));
-
+                _checkWriteACL(appId,collectionName,fileObj._id,accessList,isMasterKey).then(function(){                    
+                    promises.push(_deleteAllFoldersInside(appId,fileObj));
                     global.q.all(promises).then(function(){
                         deferred.resolve();
                     },function(err){
@@ -155,13 +160,11 @@ function _saveFileObj(appId,document){
 
     try{
         
-        _saveAndGetFolder(appId, null, document.path).then(function(folder){
-            var folderId=null;
+        var documentPath=document.path || null;
+        _saveAndGetFolder(appId, null, documentPath).then(function(folder){          
             if(folder && folder._id){
-                folderId=folder._id;
-            }
-
-            document.folderId=folderId;
+                document.folderId=folder._id;
+            }           
             var collectionName = "_File";
             return  global.mongoService.document._update(appId, collectionName, document);
 
@@ -181,6 +184,12 @@ function _saveFileObj(appId,document){
     return deferred.promise;
 }
 
+/*Desc   : Save Folders from path recursively
+  Params : appId, folderObject, path
+  Returns: Promise
+           Resolve->Last saved folderObject
+           Reject->Error on findOne() or insertOne()
+*/
 function _saveAndGetFolder(appId, folderObject, path){
 
     var deferred = global.q.defer();
@@ -269,24 +278,63 @@ function _saveAndGetFolder(appId, folderObject, path){
 
 }
 
-/*Desc   : delete cloudBoostFileObject
-  Params : appId,cloudBoostFileObject
+/*Desc   : Delete all folders and files inside 
+  Params : appId,folder
   Returns: Promise
            Resolve->deleted cloudBoostFileObject
-           Reject->Error on deleting
+           Reject->Error on find() or delete() or deleteFileFromGridFs()
 */
-function _deleteFileObj(appId,document){
+function _deleteAllFoldersInside(appId,folder){
     var deferred = global.q.defer();
 
     try{
-        var collectionName = "_File";
-        global.mongoService.document.delete(appId, collectionName, document).then(function(doc){
-            console.log('Document Deleted');
-            deferred.resolve(doc);
-        },function(err){
-            global.winston.log('error',{"error":String(err),"stack": new Error().stack});
-            deferred.reject(err);
-        });
+        var collectionName = "_File";         
+        var isMasterKey=true;                       
+        var select = {};
+        var sort = {};
+        var limit=99999;
+        var skip = 0; 
+        var accessList=null;              
+
+        var query = {};
+        query.$include = [];
+        query.$includeList = [];            
+        query["folderId"] =  folder._id;             
+
+        global.customService.find(appId, collectionName, query, select, sort, limit, skip, accessList, isMasterKey)
+        .then(function(list){
+
+            if(list && list.length>0){
+                //Find All folders inside and delete
+                var promises=[];
+                for(var i=0;i<list.length;++i){
+                    promises.push(_deleteAllFoldersInside(appId,list[i]));
+                    promises.push(global.mongoService.document.delete(appId, collectionName, folder));
+                }
+
+                q.all(promises).then(function(respList){
+                    deferred.resolve(respList);
+                },function(error){
+                    deferred.reject(error);
+                });
+            }else{
+                //Delete this folder
+                var promises=[];
+                if(folder._type=="file"){
+                    promises.push(global.mongoService.document.deleteFileFromGridFs(appId,folder._id));
+                }
+                promises.push(global.mongoService.document.delete(appId, collectionName, folder));
+
+                q.all(promises).then(function(respList){
+                    deferred.resolve(respList);
+                },function(error){
+                    deferred.reject(error);
+                });              
+            }
+
+        },function(error){
+            deferred.reject(error);
+        });    
 
     } catch(err){           
         global.winston.log('error',{"error":String(err),"stack": new Error().stack});
