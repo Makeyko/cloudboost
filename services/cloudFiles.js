@@ -131,6 +131,72 @@ module.exports = function() {
             return deferred.promise;
 		},
 
+        createFolder: function(appId, path, folderName){
+            var deferred = q.defer();
+            try{
+                //save and get Folder from path
+               _saveAndGetFolder(appId, null, path).then(function(folder){
+
+                    //Check duplication
+                    var collectionName = "_File";
+                    var isMasterKey=true;                       
+                    var select = {};
+                    var sort = {};
+                    var skip = 0; 
+                    var accessList=null;              
+
+                    var query = {};
+                    query.$include = [];
+                    query.$includeList = [];
+                    query["lowerCaseName"] = folderName.toLowerCase(); 
+
+                    var folderId=null;
+                    if(folder && folder._id){
+                        folderId=folder._id;
+                    }                   
+                    query["folderId"] =  folderId;
+                            
+
+                    global.customService.findOne(appId, collectionName, query, select, sort, skip, accessList, isMasterKey)
+                    .then(function(folderDoc){
+                        if(folderDoc){
+                            deferred.reject("Folder with name "+folderName+" already exist. Choose different name");
+                        }
+                        if(!folderDoc){
+                            //Prepare new folder object
+                            var newFolderObject=customHelperCloud.newCloudObject("folder");
+                            newFolderObject._id=util.getId();
+                            if(folderId){
+                                newFolderObject.folderId=folderId;
+                            }
+                            newFolderObject.name=folderName;
+                            newFolderObject.lowerCaseName=folderName.toLowerCase();        
+                            newFolderObject._tableName = collectionName;
+
+                            //Insert
+                            var collection =  global.mongoClient.db(appId).collection(collectionName);
+                            collection.insertOne(newFolderObject,function(err,doc){
+                                if(err) {
+                                    deferred.reject(error);
+                                }else if(doc && doc.ops && doc.ops.length>0) { 
+                                    deferred.resolve(doc.ops[0]);                                                 
+                                }
+                            });
+                        }
+                    },function(error){
+                        deferred.reject(error);
+                    });   
+
+               },function(error){
+                    deferred.reject(error);
+               });
+            } catch(err){           
+                global.winston.log('error',{"error":String(err),"stack": new Error().stack});
+                deferred.reject(err);
+            }
+            return deferred.promise;
+        },
+
         processImage: function(appId,fileName, resizeWidth, resizeHeight,cropX, cropY, cropW, cropH, quality, opacity, scale, containWidth, containHeight,rDegs,bSigma){
             var deferred = q.defer();
             try{

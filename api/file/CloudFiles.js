@@ -59,9 +59,25 @@ module.exports = function () {
 
     global.app.get('/file/:appId/:fileId', _getFile);
     global.app.post('/file/:appId/:fileId', _getFile);
+
+    //Create Folder
+    global.app.post('/folder/:appId',function(req, res) { 
+
+        var appId      = req.params.appId;
+        var folderName = req.body.folderName;
+        var path       = req.body.path;   
+        var sdk        = req.body.sdk || "REST";                  
+       
+        global.fileService.createFolder(appId, path, folderName).then(function(resp){
+            return res.status(200).send(resp);
+        },function(error){
+            return res.status(500).send(error);
+        });
+
+        global.apiTracker.log(appId,"Folder / Create", req.url,sdk);
+        
+    });
 };
-
-
 
 
 function _getFile(req, res) {
