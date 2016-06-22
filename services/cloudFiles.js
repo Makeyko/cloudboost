@@ -160,7 +160,7 @@ module.exports = function() {
                     global.customService.findOne(appId, collectionName, query, select, sort, skip, accessList, isMasterKey)
                     .then(function(folderDoc){
                         if(folderDoc){
-                            deferred.reject("Folder with name "+folderName+" already exist. Choose different name");
+                            deferred.reject("Folder with name "+folderName+" is already exist. Choose a different name");
                         }
                         if(!folderDoc){
                             //Prepare new folder object
